@@ -35,48 +35,19 @@ namespace Amazon.Runtime.Internal
             Task<T> task = Task.Run<T>(action);
             return task;
 #else
-            return Task<T>.Run(async () =>
+            return Task.Run(() =>
             {
-                Exception exception = null;
-                T result = default(T);
-
-                using (var semaphore = new SemaphoreSlim(0))
+                try
                 {
-                    Thread thread = new Thread(() =>
-                    {
-                        try
-                        {
-                            result = action();
-                        }
-                        catch (Exception e)
-                        {
-                            exception = e;
-                        }
-                        finally
-                        {
-                            semaphore.Release();
-                        }
-                    });
-#if !CORECLR
-                using (var ctr = cancellationToken.Register(() =>
+                    return action();
+                }
+                catch
                 {
-                    if (thread.IsAlive)
-                        thread.Abort();
-                }))
-#endif
-                    {
-                        thread.Start();
-                        await semaphore.WaitAsync();
-                        thread.Join();
+                    // this is strange, but leaving to preserve existing behaviour
+                    // if we completed the action but it failed, cancellation didn't happen so shouldn't be relevent
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                        if (exception != null)
-                        {
-                            cancellationToken.ThrowIfCancellationRequested();
-                            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(exception).Throw();
-                        }
-
-                        return result;
-                    }
+                    throw;
                 }
             }, cancellationToken);
 #endif
